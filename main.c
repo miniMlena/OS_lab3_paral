@@ -220,7 +220,107 @@ static int parse_size(const char *s, size_t *out)
 }
 
 
+//        "Использование: %s -n SIZE -t THREADS [-s SEED] [-v] [-p]\n"
+//        "  -n SIZE     количество элементов массива\n"
+//        "  -t THREADS  максимум потоков процесса, включая главный (>= 1)\n"
+//        "  -s SEED     начальное значение генератора случайных чисел\n"
+//      "  -v          вывести исходный и отсортированный массив\n"
+//      "  -p          использовать уже заданный seed по умолчанию (1)\n",
+
 int main(int argc, char **argv)
 {
-    return 0;
+    size_t n = 0;
+    size_t seed = 1;
+    int seed_given = 0;
+    int print_result = 0;
+
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
+            if (!parse_size(argv[++i], &n)) {
+                fprintf(stderr, "Некорректный размер массива.\n");
+                return EXIT_FAILURE;
+            }
+        } else if (strcmp(argv[i], "-t") == 0 && i + 1 < argc) {
+            if (!parse_size(argv[++i], &max_threads)) {
+                fprintf(stderr, "Некорректное количество потоков.\n");
+                return EXIT_FAILURE;
+            }
+        } else if (strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
+            if (!parse_size(argv[++i], &seed)) {
+                fprintf(stderr, "Некорректный seed.\n");
+                return EXIT_FAILURE;
+            }
+            seed_given = 1;
+        } else if (strcmp(argv[i], "-v") == 0) {
+            print_result = 1;
+            verbose = 1;
+        } else if (strcmp(argv[i], "-p") == 0) {
+            seed = 1;
+            seed_given = 1;
+        } else {
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (n == 0 || max_threads == 0) {
+        return EXIT_FAILURE;
+    }
+
+    size_t padded = 1;
+    while (padded < n) {
+        if (padded > SIZE_MAX / 2) {
+            fprintf(stderr, "Размер массива слишком велик.\n");
+            return EXIT_FAILURE;
+        }
+        padded *= 2;
+    }
+
+    if (padded > SIZE_MAX / sizeof(int)) {
+        fprintf(stderr, "Размер массива слишком велик.\n");
+        return EXIT_FAILURE;
+    }
+
+    int *a = malloc(padded * sizeof(*a));
+    if (a == NULL) {
+        perror("malloc");
+        return EXIT_FAILURE;
+    }
+
+    if (!seed_given) {
+        seed = (size_t)time(NULL);
+    }
+    srand((unsigned int)seed);
+
+    for (size_t i = 0; i < n; ++i) {
+        a[i] = rand() % 2000001 - 1000000;
+    }
+
+    for (size_t i = n; i < padded; ++i) {
+        a[i] = INT_MAX;
+    }
+
+    if (print_result) {
+        printf("Исходный массив (%zu элементов):\n", n);
+        print_array(a, n);
+    }
+
+    double start = now_seconds();
+    batcher_sort(a, 0, padded);
+    double elapsed = now_seconds() - start;
+
+    int ok = is_sorted(a, n);
+
+    printf("N=%zu padded=%zu threads_limit=%zu seed=%zu\n",
+           n, padded, max_threads, seed);
+    printf("time_seconds=%.9f\n", elapsed);
+    printf("sorted=%s\n", ok ? "yes" : "NO");
+
+    if (print_result) {
+        printf("Отсортированный массив:\n");
+        print_array(a, n);
+    }
+
+    free(a);
+    return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+
 }
